@@ -49,6 +49,7 @@ import org.eclipse.jetty.http.HttpHeader;
 import org.eclipse.jetty.http.HttpHeaderValue;
 import org.eclipse.jetty.http.HttpStatus;
 import org.eclipse.jetty.util.HttpCookieStore;
+import org.eclipse.jetty.util.StringUtil;
 import org.eclipse.jetty.util.log.Log;
 import org.eclipse.jetty.util.log.Logger;
 import org.eclipse.jetty.util.thread.QueuedThreadPool;
@@ -368,6 +369,7 @@ public abstract class AbstractProxyServlet extends HttpServlet
 
     /**
      * Checks the given {@code host} and {@code port} against whitelist and blacklist.
+     * <p>Host names are case insensitive, so the comparison is done ignoring the ASCII case.</p>
      *
      * @param host the host to check
      * @param port the port to check
@@ -375,10 +377,10 @@ public abstract class AbstractProxyServlet extends HttpServlet
      */
     public boolean validateDestination(String host, int port)
     {
-        String hostPort = host + ":" + port;
+        String hostPort = StringUtil.asciiToLowerCase(host + ":" + port);
         if (!_whiteList.isEmpty())
         {
-            if (!_whiteList.contains(hostPort))
+            if (!containsHostPort(_whiteList, hostPort))
             {
                 if (_log.isDebugEnabled())
                     _log.debug("Host {}:{} not whitelisted", host, port);
@@ -387,7 +389,7 @@ public abstract class AbstractProxyServlet extends HttpServlet
         }
         if (!_blackList.isEmpty())
         {
-            if (_blackList.contains(hostPort))
+            if (containsHostPort(_blackList, hostPort))
             {
                 if (_log.isDebugEnabled())
                     _log.debug("Host {}:{} blacklisted", host, port);
@@ -395,6 +397,21 @@ public abstract class AbstractProxyServlet extends HttpServlet
             }
         }
         return true;
+    }
+
+    /**
+     * @param hosts the set of {@code host:port} entries
+     * @param hostPort the ASCII lower case {@code host:port} to look for
+     * @return whether the given set contains an entry equal to {@code hostPort}, ignoring the ASCII case
+     */
+    private static boolean containsHostPort(Set<String> hosts, String hostPort)
+    {
+        for (String entry : hosts)
+        {
+            if (hostPort.equals(StringUtil.asciiToLowerCase(entry)))
+                return true;
+        }
+        return false;
     }
 
     protected String rewriteTarget(HttpServletRequest clientRequest)

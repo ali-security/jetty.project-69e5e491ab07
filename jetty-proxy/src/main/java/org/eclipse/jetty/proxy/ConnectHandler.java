@@ -55,6 +55,7 @@ import org.eclipse.jetty.util.BufferUtil;
 import org.eclipse.jetty.util.Callback;
 import org.eclipse.jetty.util.HostPort;
 import org.eclipse.jetty.util.Promise;
+import org.eclipse.jetty.util.StringUtil;
 import org.eclipse.jetty.util.TypeUtil;
 import org.eclipse.jetty.util.log.Log;
 import org.eclipse.jetty.util.log.Logger;
@@ -589,6 +590,7 @@ public class ConnectHandler extends HandlerWrapper
 
     /**
      * Checks the given {@code host} and {@code port} against whitelist and blacklist.
+     * <p>Host names are case insensitive, so the comparison is done ignoring the ASCII case.</p>
      *
      * @param host the host to check
      * @param port the port to check
@@ -596,10 +598,10 @@ public class ConnectHandler extends HandlerWrapper
      */
     public boolean validateDestination(String host, int port)
     {
-        String hostPort = host + ":" + port;
+        String hostPort = StringUtil.asciiToLowerCase(host + ":" + port);
         if (!whiteList.isEmpty())
         {
-            if (!whiteList.contains(hostPort))
+            if (!containsHostPort(whiteList, hostPort))
             {
                 if (LOG.isDebugEnabled())
                     LOG.debug("Host {}:{} not whitelisted", host, port);
@@ -608,7 +610,7 @@ public class ConnectHandler extends HandlerWrapper
         }
         if (!blackList.isEmpty())
         {
-            if (blackList.contains(hostPort))
+            if (containsHostPort(blackList, hostPort))
             {
                 if (LOG.isDebugEnabled())
                     LOG.debug("Host {}:{} blacklisted", host, port);
@@ -616,6 +618,21 @@ public class ConnectHandler extends HandlerWrapper
             }
         }
         return true;
+    }
+
+    /**
+     * @param hosts the set of {@code host:port} entries
+     * @param hostPort the ASCII lower case {@code host:port} to look for
+     * @return whether the given set contains an entry equal to {@code hostPort}, ignoring the ASCII case
+     */
+    private static boolean containsHostPort(Set<String> hosts, String hostPort)
+    {
+        for (String entry : hosts)
+        {
+            if (hostPort.equals(StringUtil.asciiToLowerCase(entry)))
+                return true;
+        }
+        return false;
     }
 
     @Override

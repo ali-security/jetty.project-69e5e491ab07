@@ -582,6 +582,76 @@ public class ProxyServletTest
     }
 
     @Test
+    public void testProxyWhiteListIsCaseInsensitive() throws Exception
+    {
+        startServer(new EmptyHttpServlet());
+        startProxy();
+        startClient();
+        int port = serverConnector.getLocalPort();
+        proxyServlet.getWhiteListHosts().add("LOCALHOST:" + port);
+
+        // Try with the wrong host
+        ContentResponse response = client.newRequest("127.0.0.1", port)
+                .timeout(5, TimeUnit.SECONDS)
+                .send();
+        Assert.assertEquals(403, response.getStatus());
+
+        // Host names are case insensitive, the whitelisted host must match whatever the case.
+        response = client.newRequest("localhost", port)
+                .timeout(5, TimeUnit.SECONDS)
+                .send();
+        Assert.assertEquals(200, response.getStatus());
+    }
+
+    @Test
+    public void testProxyBlackListIsCaseInsensitive() throws Exception
+    {
+        startServer(new EmptyHttpServlet());
+        startProxy();
+        startClient();
+        int port = serverConnector.getLocalPort();
+        proxyServlet.getBlackListHosts().add("localhost:" + port);
+
+        // Host names are case insensitive, the blacklist must not be bypassed by changing the case.
+        for (String host : new String[]{"LOCALHOST", "LocalHost"})
+        {
+            ContentResponse response = client.newRequest(host, port)
+                    .timeout(5, TimeUnit.SECONDS)
+                    .send();
+            Assert.assertEquals(host, 403, response.getStatus());
+        }
+
+        // Try again with the right host
+        ContentResponse response = client.newRequest("127.0.0.1", port)
+                .timeout(5, TimeUnit.SECONDS)
+                .send();
+        Assert.assertEquals(200, response.getStatus());
+    }
+
+    @Test
+    public void testProxyBlackListInitParameterIsCaseInsensitive() throws Exception
+    {
+        startServer(new EmptyHttpServlet());
+        int port = serverConnector.getLocalPort();
+        Map<String, String> params = new HashMap<>();
+        params.put("blackList", "LOCALHOST:" + port);
+        startProxy(params);
+        startClient();
+
+        // Host names are case insensitive, the blacklist must not be bypassed by changing the case.
+        ContentResponse response = client.newRequest("localhost", port)
+                .timeout(5, TimeUnit.SECONDS)
+                .send();
+        Assert.assertEquals(403, response.getStatus());
+
+        // Try again with the right host
+        response = client.newRequest("127.0.0.1", port)
+                .timeout(5, TimeUnit.SECONDS)
+                .send();
+        Assert.assertEquals(200, response.getStatus());
+    }
+
+    @Test
     public void testClientExcludedHosts() throws Exception
     {
         startServer(new HttpServlet()

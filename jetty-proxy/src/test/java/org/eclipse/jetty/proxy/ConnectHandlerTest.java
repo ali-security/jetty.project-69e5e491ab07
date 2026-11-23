@@ -255,6 +255,131 @@ public class ConnectHandlerTest extends AbstractConnectHandlerTest
     }
 
     @Test
+    public void testProxyBlackListIsCaseInsensitive() throws Exception
+    {
+        int port = serverConnector.getLocalPort();
+        connectHandler.getBlackListHosts().add("localhost:" + port);
+        connectHandler.getBlackListHosts().add("LOCALHOST.LOCALDOMAIN:" + port);
+
+        // Host names are case insensitive, the blacklist must not be bypassed by changing the case.
+        String[] targets = new String[]
+                {
+                        "LOCALHOST:" + port,
+                        "LocalHost:" + port,
+                        "localhost.localdomain:" + port
+                };
+        for (String target : targets)
+        {
+            String request = "" +
+                    "CONNECT " + target + " HTTP/1.1\r\n" +
+                    "Host: " + target + "\r\n" +
+                    "\r\n";
+            try (Socket socket = newSocket())
+            {
+                OutputStream output = socket.getOutputStream();
+                InputStream input = socket.getInputStream();
+
+                output.write(request.getBytes(StandardCharsets.UTF_8));
+                output.flush();
+
+                // Expect 403 from the CONNECT request
+                HttpTester.Response response = readResponse(input);
+                Assert.assertEquals(target, HttpStatus.FORBIDDEN_403, response.getStatus());
+
+                // Socket should be closed
+                Assert.assertEquals(target, -1, input.read());
+            }
+        }
+
+        // Try again with a host that is not blacklisted
+        String request = "" +
+                "CONNECT 127.0.0.1:" + port + " HTTP/1.1\r\n" +
+                "Host: 127.0.0.1:" + port + "\r\n" +
+                "\r\n";
+        try (Socket socket = newSocket())
+        {
+            OutputStream output = socket.getOutputStream();
+            InputStream input = socket.getInputStream();
+
+            output.write(request.getBytes(StandardCharsets.UTF_8));
+            output.flush();
+
+            // Expect 200 from the CONNECT request
+            HttpTester.Response response = readResponse(input);
+            Assert.assertEquals(HttpStatus.OK_200, response.getStatus());
+
+            request = "" +
+                    "GET /echo" + " HTTP/1.1\r\n" +
+                    "Host: 127.0.0.1:" + port + "\r\n" +
+                    "\r\n";
+            output.write(request.getBytes(StandardCharsets.UTF_8));
+            output.flush();
+
+            response = readResponse(input);
+            Assert.assertEquals(HttpStatus.OK_200, response.getStatus());
+            Assert.assertEquals("GET /echo", response.getContent());
+        }
+    }
+
+    @Test
+    public void testProxyWhiteListIsCaseInsensitive() throws Exception
+    {
+        int port = serverConnector.getLocalPort();
+        connectHandler.getWhiteListHosts().add("LOCALHOST:" + port);
+
+        // Try with a host that is not whitelisted
+        String request = "" +
+                "CONNECT 127.0.0.1:" + port + " HTTP/1.1\r\n" +
+                "Host: 127.0.0.1:" + port + "\r\n" +
+                "\r\n";
+        try (Socket socket = newSocket())
+        {
+            OutputStream output = socket.getOutputStream();
+            InputStream input = socket.getInputStream();
+
+            output.write(request.getBytes(StandardCharsets.UTF_8));
+            output.flush();
+
+            // Expect 403 from the CONNECT request
+            HttpTester.Response response = readResponse(input);
+            Assert.assertEquals(HttpStatus.FORBIDDEN_403, response.getStatus());
+
+            // Socket should be closed
+            Assert.assertEquals(-1, input.read());
+        }
+
+        // Host names are case insensitive, the whitelisted host must match whatever the case.
+        String hostPort = "localhost:" + port;
+        request = "" +
+                "CONNECT " + hostPort + " HTTP/1.1\r\n" +
+                "Host: " + hostPort + "\r\n" +
+                "\r\n";
+        try (Socket socket = newSocket())
+        {
+            OutputStream output = socket.getOutputStream();
+            InputStream input = socket.getInputStream();
+
+            output.write(request.getBytes(StandardCharsets.UTF_8));
+            output.flush();
+
+            // Expect 200 from the CONNECT request
+            HttpTester.Response response = readResponse(input);
+            Assert.assertEquals(HttpStatus.OK_200, response.getStatus());
+
+            request = "" +
+                    "GET /echo" + " HTTP/1.1\r\n" +
+                    "Host: " + hostPort + "\r\n" +
+                    "\r\n";
+            output.write(request.getBytes(StandardCharsets.UTF_8));
+            output.flush();
+
+            response = readResponse(input);
+            Assert.assertEquals(HttpStatus.OK_200, response.getStatus());
+            Assert.assertEquals("GET /echo", response.getContent());
+        }
+    }
+
+    @Test
     public void testProxyAuthentication() throws Exception
     {
         disposeProxy();
