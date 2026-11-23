@@ -38,6 +38,7 @@ import javax.servlet.http.HttpServletResponse;
 import org.eclipse.jetty.http.HttpHeader;
 import org.eclipse.jetty.http.HttpHeaderValue;
 import org.eclipse.jetty.http.HttpMethod;
+import org.eclipse.jetty.http.HttpURI;
 import org.eclipse.jetty.io.ByteBufferPool;
 import org.eclipse.jetty.io.Connection;
 import org.eclipse.jetty.io.EndPoint;
@@ -187,9 +188,19 @@ public class ConnectHandler extends HandlerWrapper
     {
         if (HttpMethod.CONNECT.is(request.getMethod()))
         {
-            String serverAddress = request.getRequestURI();
+            HttpURI uri = baseRequest.getHttpURI();
+            String serverAddress = getServerAddress(uri);
             if (LOG.isDebugEnabled())
                 LOG.debug("CONNECT request for {}", serverAddress);
+
+            if (serverAddress == null)
+            {
+                if (LOG.isDebugEnabled())
+                    LOG.debug("CONNECT request-target not in authority-form: {}", uri);
+                baseRequest.setHandled(true);
+                sendConnectResponse(request, response, HttpServletResponse.SC_BAD_REQUEST);
+                return;
+            }
 
             handleConnect(baseRequest, request, response, serverAddress);
         }
@@ -197,6 +208,102 @@ public class ConnectHandler extends HandlerWrapper
         {
             super.handle(target, baseRequest, request, response);
         }
+    }
+
+    /**
+     * <p>Returns the address of the remote server of a CONNECT request,
+     * taken from the request-target, that must be in authority-form ({@code host:port}).</p>
+     * <p>When the request-target has been parsed as an authority, the URI authority is used;
+     * when it has been retained verbatim as the URI path, the path is used, so that
+     * an authority derived from the {@code Host} header is never used instead.</p>
+     *
+     * @param uri the CONNECT request URI
+     * @return the remote server address, or null if the request-target is not in authority-form
+     */
+    private static String getServerAddress(HttpURI uri)
+    {
+        if (uri == null)
+            return null;
+        String path = uri.getPath();
+        String serverAddress;
+        if (path == null || path.isEmpty())
+            serverAddress = uri.getHost() == null ? null : uri.getAuthority();
+        else
+            serverAddress = path;
+        return isAuthorityForm(serverAddress) ? serverAddress : null;
+    }
+
+    /**
+     * @param authority the CONNECT request-target
+     * @return whether the given string is a {@code host[:port]} authority with
+     * a non empty host, no user info, no path, no query and no fragment
+     */
+    private static boolean isAuthorityForm(String authority)
+    {
+        if (authority == null || authority.isEmpty())
+            return false;
+
+        int length = authority.length();
+        int hostEnd;
+        if (authority.charAt(0) == '[')
+        {
+            // IP-literal.
+            hostEnd = authority.indexOf(']') + 1;
+            if (hostEnd < 4)
+                return false;
+            boolean colon = false;
+            for (int i = 1; i < hostEnd - 1; ++i)
+            {
+                char c = authority.charAt(i);
+                if (c == ':')
+                    colon = true;
+                else if (!isHostChar(c) && c != '%')
+                    return false;
+            }
+            if (!colon)
+                return false;
+        }
+        else
+        {
+            // IPv4 address or host name.
+            hostEnd = authority.indexOf(':');
+            if (hostEnd < 0)
+                hostEnd = length;
+            if (hostEnd == 0)
+                return false;
+            for (int i = 0; i < hostEnd; ++i)
+            {
+                if (!isHostChar(authority.charAt(i)))
+                    return false;
+            }
+        }
+
+        if (hostEnd == length)
+            return true;
+        if (authority.charAt(hostEnd) != ':')
+            return false;
+
+        // Port.
+        int portStart = hostEnd + 1;
+        if (portStart == length || length - portStart > 5)
+            return false;
+        int port = 0;
+        for (int i = portStart; i < length; ++i)
+        {
+            char c = authority.charAt(i);
+            if (c < '0' || c > '9')
+                return false;
+            port = port * 10 + (c - '0');
+        }
+        return port > 0 && port <= 65535;
+    }
+
+    private static boolean isHostChar(char c)
+    {
+        return (c >= 'a' && c <= 'z') ||
+                (c >= 'A' && c <= 'Z') ||
+                (c >= '0' && c <= '9') ||
+                c == '-' || c == '.' || c == '_';
     }
 
     /**

@@ -376,6 +376,169 @@ public class ConnectHandlerTest extends AbstractConnectHandlerTest
     }
 
     @Test
+    public void testCONNECTWithoutHostIsRejected() throws Exception
+    {
+        // Tunnels to the local server are forbidden.
+        int port = serverConnector.getLocalPort();
+        connectHandler.getBlackListHosts().add("localhost:" + port);
+        connectHandler.getBlackListHosts().add("127.0.0.1:" + port);
+
+        // An authority without a host must not be interpreted as
+        // having a host (an empty host resolves to the loopback address).
+        String[] targets = new String[]{":" + port, ":" + port + "/echo"};
+        for (String target : targets)
+        {
+            String request = "" +
+                    "CONNECT " + target + " HTTP/1.1\r\n" +
+                    "Host: " + target + "\r\n" +
+                    "\r\n";
+            try (Socket socket = newSocket())
+            {
+                OutputStream output = socket.getOutputStream();
+                InputStream input = socket.getInputStream();
+
+                output.write(request.getBytes(StandardCharsets.UTF_8));
+                output.flush();
+
+                // Expect 400 from the CONNECT request
+                HttpTester.Response response = readResponse(input);
+                Assert.assertEquals(target, HttpStatus.BAD_REQUEST_400, response.getStatus());
+
+                // Socket should be closed
+                Assert.assertEquals(target, -1, input.read());
+            }
+        }
+    }
+
+    @Test
+    public void testCONNECTWithNonAuthorityFormTargetIsRejected() throws Exception
+    {
+        int port = serverConnector.getLocalPort();
+        String hostPort = "localhost:" + port;
+        // The CONNECT request-target must be in authority-form, a relative path,
+        // or a path, a query or a scheme around the authority, must be rejected.
+        String[] targets = new String[]
+                {
+                        "/echo",
+                        hostPort + "/echo",
+                        hostPort + "?echo",
+                        "http://" + hostPort + "/echo"
+                };
+        for (String target : targets)
+        {
+            String request = "" +
+                    "CONNECT " + target + " HTTP/1.1\r\n" +
+                    "Host: " + hostPort + "\r\n" +
+                    "\r\n";
+            try (Socket socket = newSocket())
+            {
+                OutputStream output = socket.getOutputStream();
+                InputStream input = socket.getInputStream();
+
+                output.write(request.getBytes(StandardCharsets.UTF_8));
+                output.flush();
+
+                // Expect 400 from the CONNECT request
+                HttpTester.Response response = readResponse(input);
+                Assert.assertEquals(target, HttpStatus.BAD_REQUEST_400, response.getStatus());
+
+                // Socket should be closed
+                Assert.assertEquals(target, -1, input.read());
+            }
+        }
+    }
+
+    @Test
+    public void testCONNECTWithHostHeaderDifferentThanRequestTarget() throws Exception
+    {
+        int port = serverConnector.getLocalPort();
+        String hostPort = "127.0.0.1:" + port;
+        connectHandler.getWhiteListHosts().add(hostPort);
+
+        // The Host header must not override the request-target.
+        String request = "" +
+                "CONNECT localhost:" + port + " HTTP/1.1\r\n" +
+                "Host: " + hostPort + "\r\n" +
+                "\r\n";
+        try (Socket socket = newSocket())
+        {
+            OutputStream output = socket.getOutputStream();
+            InputStream input = socket.getInputStream();
+
+            output.write(request.getBytes(StandardCharsets.UTF_8));
+            output.flush();
+
+            // Expect 403 from the CONNECT request
+            HttpTester.Response response = readResponse(input);
+            Assert.assertEquals(HttpStatus.FORBIDDEN_403, response.getStatus());
+
+            // Socket should be closed
+            Assert.assertEquals(-1, input.read());
+        }
+
+        // The tunnel must be opened to the request-target, not to the Host header.
+        request = "" +
+                "CONNECT " + hostPort + " HTTP/1.1\r\n" +
+                "Host: 127.0.0.1:1\r\n" +
+                "\r\n";
+        try (Socket socket = newSocket())
+        {
+            OutputStream output = socket.getOutputStream();
+            InputStream input = socket.getInputStream();
+
+            output.write(request.getBytes(StandardCharsets.UTF_8));
+            output.flush();
+
+            // Expect 200 from the CONNECT request
+            HttpTester.Response response = readResponse(input);
+            Assert.assertEquals(HttpStatus.OK_200, response.getStatus());
+
+            request = "" +
+                    "GET /echo" + " HTTP/1.1\r\n" +
+                    "Host: " + hostPort + "\r\n" +
+                    "\r\n";
+            output.write(request.getBytes(StandardCharsets.UTF_8));
+            output.flush();
+
+            response = readResponse(input);
+            Assert.assertEquals(HttpStatus.OK_200, response.getStatus());
+            Assert.assertEquals("GET /echo", response.getContent());
+        }
+    }
+
+    @Test
+    public void testCONNECT10WithoutHostHeaderAndGET() throws Exception
+    {
+        String hostPort = "localhost:" + serverConnector.getLocalPort();
+        String request = "" +
+                "CONNECT " + hostPort + " HTTP/1.0\r\n" +
+                "\r\n";
+        try (Socket socket = newSocket())
+        {
+            OutputStream output = socket.getOutputStream();
+            InputStream input = socket.getInputStream();
+
+            output.write(request.getBytes(StandardCharsets.UTF_8));
+            output.flush();
+
+            // Expect 200 OK from the CONNECT request
+            HttpTester.Response response = readResponse(input);
+            Assert.assertEquals(HttpStatus.OK_200, response.getStatus());
+
+            request = "" +
+                    "GET /echo" + " HTTP/1.1\r\n" +
+                    "Host: " + hostPort + "\r\n" +
+                    "\r\n";
+            output.write(request.getBytes(StandardCharsets.UTF_8));
+            output.flush();
+
+            response = readResponse(input);
+            Assert.assertEquals(HttpStatus.OK_200, response.getStatus());
+            Assert.assertEquals("GET /echo", response.getContent());
+        }
+    }
+
+    @Test
     public void testCONNECT10AndGET() throws Exception
     {
         String hostPort = "localhost:" + serverConnector.getLocalPort();

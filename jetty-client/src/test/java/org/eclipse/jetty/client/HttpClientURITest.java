@@ -82,6 +82,35 @@ public class HttpClientURITest extends AbstractHttpClientServerTest
     }
 
     @Test
+    public void testPathWithPathParameter() throws Exception
+    {
+        startClient();
+
+        Request request1 = client.newRequest("localhost", 8080)
+                .scheme(scheme)
+                .path("/url;p=v");
+        Assert.assertEquals("/url;p=v", request1.getPath());
+        Assert.assertEquals("localhost", request1.getURI().getHost());
+        Assert.assertEquals("/url;p=v", request1.getURI().getRawPath());
+
+        // A relative path must not be able to inject an authority.
+        Request request2 = client.newRequest("localhost", 8080)
+                .scheme(scheme)
+                .path(";p=v/url");
+        Assert.assertEquals("/;p=v/url", request2.getPath());
+        Assert.assertEquals("localhost", request2.getURI().getHost());
+        Assert.assertEquals("/;p=v/url", request2.getURI().getRawPath());
+
+        Request request3 = client.newRequest("localhost", 8080)
+                .scheme(scheme)
+                .path(";@host.org/url");
+        Assert.assertEquals("/;@host.org/url", request3.getPath());
+        Assert.assertEquals("localhost", request3.getURI().getHost());
+        Assert.assertEquals(8080, request3.getURI().getPort());
+        Assert.assertEquals("/;@host.org/url", request3.getURI().getRawPath());
+    }
+
+    @Test
     public void testIDNHost() throws Exception
     {
         startClient();
